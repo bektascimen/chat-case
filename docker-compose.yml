@@ -1,0 +1,60 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: appnation
+      POSTGRES_PASSWORD: appnation
+      POSTGRES_DB: appnation
+    # Postgres lives on the compose internal network only — no host port
+    # mapping. The app reaches it via `postgres:5432`. To inspect data, use
+    # `docker compose exec postgres psql -U appnation -d appnation`.
+    # This avoids host-port conflicts with whatever other Postgres a reviewer
+    # might already have running on 5432.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U appnation"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  app:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      LOG_LEVEL: info
+      DATABASE_URL: "postgresql://appnation:appnation@postgres:5432/appnation?connection_limit=10&pool_timeout=20"
+      JWT_SECRET: "docker-dev-secret-1234567890"
+      APP_CHECK_TOKEN: "mock-app-check-token"
+      ADMIN_TOKEN: "dev-admin-token"
+      # AI provider — flip via host env: AI_PROVIDER=gemini docker compose up
+      AI_PROVIDER: ${AI_PROVIDER:-mock}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      # Feature flags — overridable from host shell:
+      #   STREAMING_ENABLED=false docker compose up
+      STREAMING_ENABLED: ${STREAMING_ENABLED:-true}
+      PAGINATION_LIMIT: ${PAGINATION_LIMIT:-20}
+      AI_TOOLS_ENABLED: ${AI_TOOLS_ENABLED:-false}
+      CHAT_HISTORY_ENABLED: ${CHAT_HISTORY_ENABLED:-true}
+      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-60}
+      COMPLETION_ENABLED: ${COMPLETION_ENABLED:-true}
+      # LLM resilience
+      LLM_RETRY_MAX_ATTEMPTS: ${LLM_RETRY_MAX_ATTEMPTS:-3}
+      LLM_RETRY_BASE_DELAY_MS: ${LLM_RETRY_BASE_DELAY_MS:-200}
+      LLM_RETRY_MAX_DELAY_MS: ${LLM_RETRY_MAX_DELAY_MS:-5000}
+      LLM_RETRY_JITTER_RATIO: ${LLM_RETRY_JITTER_RATIO:-0.2}
+      LLM_REQUEST_TIMEOUT_MS: ${LLM_REQUEST_TIMEOUT_MS:-30000}
+      LLM_CIRCUIT_FAILURE_THRESHOLD: ${LLM_CIRCUIT_FAILURE_THRESHOLD:-5}
+      LLM_CIRCUIT_RESET_TIMEOUT_MS: ${LLM_CIRCUIT_RESET_TIMEOUT_MS:-30000}
+      LLM_CIRCUIT_FALLBACK: ${LLM_CIRCUIT_FALLBACK:-mock}
+    ports:
+      - "3000:3000"
+    command: sh -c "npx prisma migrate deploy && npx tsx prisma/seed.ts && npx tsx src/server.ts"
+
+volumes:
+  pgdata:

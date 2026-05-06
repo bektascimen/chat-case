@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: appnation
+          POSTGRES_PASSWORD: appnation
+          POSTGRES_DB: appnation_test
+        options: >-
+          --health-cmd "pg_isready -U appnation"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://appnation:appnation@localhost:5432/appnation_test?connection_limit=5
+      JWT_SECRET: ci-secret-1234567890
+      APP_CHECK_TOKEN: mock-app-check-token
+      ADMIN_TOKEN: ci-admin
+      AI_PROVIDER: mock
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Node 24 ships with npm 11, matching the host that generated
+          # package-lock.json (lockfileVersion 3). Node 22 (npm 10) is stricter
+          # about transitive optional-peer entries and rejects this lock.
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npx prisma migrate deploy
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test -- --coverage
